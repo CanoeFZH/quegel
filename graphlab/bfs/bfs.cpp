@@ -4,8 +4,7 @@
 #include <cassert>
 
 #include <graphlab.hpp>
-
-
+#include <cstdio>
 const int inf = 1e9;
 
 typedef int vertex_data;
@@ -20,15 +19,13 @@ struct BiVertex_data : graphlab::IS_POD_TYPE
 
 typedef graphlab::distributed_graph<BiVertex_data, edge_data> DirectedGraph;
 
+const int QUERY_SIZE = 10;
 
-
-const int QUERY_SIZE = 6;
-
-const int SOURCE_LIST[QUERY_SIZE] = {0, 1, 2, 3, 4, 5}, DEST_LIST[QUERY_SIZE] = {5, 4, 3, 2, 1, 0};
+const int SOURCE_LIST[QUERY_SIZE] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, DEST_LIST[QUERY_SIZE] = {9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
 
 int SOURCE_VERTEX, DEST_VERTEX;
 int ForwardCover, BackwardCover;
-int BiDist;
+int BiDist, BiIteration;
 
 int KHop = 3;
 
@@ -165,7 +162,6 @@ class BiBFS : public graphlab::ivertex_program<DirectedGraph, graphlab::empty, B
     public graphlab::IS_POD_TYPE
 {
     int my_flag;
-    int changed; // 0 unchanged 1 forward 2 backward 3 both
     public:
     void init(icontext_type& context, const vertex_type& vertex,
             const BiBFS_type& msg) {
@@ -186,18 +182,14 @@ class BiBFS : public graphlab::ivertex_program<DirectedGraph, graphlab::empty, B
         }
         else // if(context.iteration() == 1)
         {
-            changed = 0;
-            
             if( vertex.data().forward == inf && (my_flag & 1) )
             {
-                vertex.data().forward = context.iteration();
-                changed |= 1;
+                vertex.data().forward = BiIteration;
             }
 
             if( vertex.data().backward == inf && (my_flag & 2) )
             {
-                vertex.data().backward = context.iteration();
-                changed |= 2;
+                vertex.data().backward = BiIteration;
             }
         }
     }
@@ -206,13 +198,14 @@ class BiBFS : public graphlab::ivertex_program<DirectedGraph, graphlab::empty, B
             const vertex_type& vertex) const
     {
         if(context.iteration() == 0)
-            return graphlab::NO_EDGES;
+        {
+            if(vertex.data().forward != inf)
+                return graphlab::OUT_EDGES;
+            else
+                return graphlab::IN_EDGES;
+        }
         else
         {
-            if (changed & 1)
-                return graphlab::OUT_EDGES;
-            if (changed & 2)
-                return graphlab::IN_EDGES;
             return graphlab::NO_EDGES;
         }
     }
@@ -224,13 +217,17 @@ class BiBFS : public graphlab::ivertex_program<DirectedGraph, graphlab::empty, B
         {
             const BiBFS_type msg(1);
             if (edge.target().data().forward == inf)
+            {
                 context.signal(edge.target(), msg);
+            }
         }
         else
         {
             const BiBFS_type msg(2);
             if (edge.source().data().backward == inf)
+            {
                 context.signal(edge.source(), msg);
+            }
         }
     }
 };
@@ -387,20 +384,15 @@ bool UndirectedBiParser(DirectedGraph& graph, const std::string& filename,
     std::istringstream ssin(textline);
     graphlab::vertex_id_type vid;
     ssin >> vid;
-    int in_num, out_num;
-    ssin >> in_num;
-    for(int i = 0 ;i < in_num; i ++)
-    {
-        graphlab::vertex_id_type other_vid;
-        ssin >> other_vid; // skip in_neighbors;
-    }
-    ssin >> out_num;
-    for(int i = 0 ;i < out_num ; i ++)
+    int num;
+    ssin >> num;
+    for(int i = 0 ;i < num ; i ++)
     {
         graphlab::vertex_id_type other_vid;
         ssin >> other_vid;
         graph.add_edge(vid, other_vid);
     }
+    
     return true;
 }
 
@@ -482,16 +474,20 @@ int main(int argc, char** argv)
         dc.cout() << "Finished Running engine in " << t_compute << " seconds." << std::endl;
         dc.cout() << "Dumping graph in " << t_dump << " seconds."   << std::endl;
     }
-    else if(strcmp(opt, "bifsDG") == 0 || strcmp(opt, "bifsUG") == 0)
+    else if(strcmp(opt, "bibfsDG") == 0 || strcmp(opt, "bibfsUG") == 0)
     {
         graphlab::timer t;
         t.start();
 
         DirectedGraph graph(dc);
-        if(strcmp(opt, "bifsUG") == 0 )
+        if(strcmp(opt, "bibfsUG") == 0 )
+        {
             graph.load(input_file, UndirectedBiParser);
+        }
         else
+        {
             graph.load(input_file, DirectedBiParser);
+        }
         graph.finalize();
 
 
@@ -508,19 +504,27 @@ int main(int argc, char** argv)
             t.start();
             graph.transform_vertices(init_bivertex);
 
-
+            BiIteration = 0;
             while(true)
             {
+                BiIteration ++;
+
                 graphlab::omni_engine<BiBFS> engine(dc, graph, exec_type);
                 engine.map_reduce_vertices<graphlab::empty>(signal_vertices);
                 engine.start();
 
                 BiDist = graph.map_reduce_vertices<min_t>(get_dist).value;
+                
+                dc.cout() << "BiDist: " << BiDist << std::endl;
+                
                 if(BiDist != inf)
                     break;
 
                 int fc = graph.map_reduce_vertices<size_t>(count_forward_cover);
                 int bc = graph.map_reduce_vertices<size_t>(count_backward_cover);
+                
+                dc.cout() << "FC: " << fc << " BC: " << bc << std::endl;
+                
                 if(fc - ForwardCover == 0 || bc - BackwardCover == 0)
                 {
                     BiDist = inf;
