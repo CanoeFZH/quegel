@@ -515,7 +515,7 @@ int main(int argc, char** argv)
 
                 BiDist = graph.map_reduce_vertices<min_t>(get_dist).value;
                 
-                dc.cout() << "BiDist: " << BiDist << std::endl;
+                //dc.cout() << "BiDist: " << BiDist << std::endl;
                 
                 if(BiDist != inf)
                     break;
@@ -523,7 +523,7 @@ int main(int argc, char** argv)
                 int fc = graph.map_reduce_vertices<size_t>(count_forward_cover);
                 int bc = graph.map_reduce_vertices<size_t>(count_backward_cover);
                 
-                dc.cout() << "FC: " << fc << " BC: " << bc << std::endl;
+                //dc.cout() << "FC: " << fc << " BC: " << bc << std::endl;
                 
                 if(fc - ForwardCover == 0 || bc - BackwardCover == 0)
                 {
