@@ -4,28 +4,83 @@ import org.apache.spark.SparkContext._
 import org.apache.spark._
 import org.apache.spark.graphx._
 import org.apache.spark.graphx.lib.Analytics
+import scala.reflect.ClassTag
 import scala.Array.canBuildFrom
+
 object bfs {
-  def main(args: Array[String]) {
-    val sc = new SparkContext("spark://localhost:7077", "bfs")
-    val infile = sc.textFile(args(0))
-    val lines = infile.map(line => line.split("\t"))
-    val verticesRDD = lines.map(parts => (parts(0).toLong, null))
-    val edgesRDD = lines.flatMap { parts =>
-      val adj = parts(1).split(" ")
-      val vid = parts(0).toLong
-      for (i <- 1 until adj.length) yield Edge(vid, adj(i).toLong, null)
+
+  val SOURCE_LIST = Array(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+  val DEST_LIST = Array(9, 8, 7, 6, 5, 4, 3, 2, 2, 1, 0)
+
+  val SEPARATOR = "[\t ]"
+
+  def loadUndirectedGraph[VD: ClassTag, ED: ClassTag](sc: SparkContext, path: String, defaultEdgeAttr: ED, defaultVetexAttr: VD): Graph[VD, ED] =
+    {
+      val textRDD = sc.textFile(path);
+      val edge = textRDD.flatMap(
+        line => {
+          val numbers = line.split(SEPARATOR);
+          val srcId: VertexId = numbers(0).trim.toLong;
+          numbers.slice(2, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr))
+        })
+      Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
     }
-    val graph = Graph(verticesRDD, edgesRDD)
-    val pagerankGraph = graph.outerJoinVertices(graph.outDegrees) { (vid, vdata, deg) => deg.getOrElse(0) }.mapTriplets(e => 1.0 / e.srcAttr).mapVertices((id, attr) => 1.0).cache()
-    val numIter = 10
-    val resetProb = 0.15
-    def vertexProgram(id: VertexId, attr: Double, msgSum: Double): Double = resetProb + (1.0 - resetProb) * msgSum
-    def sendMessage(edge: EdgeTriplet[Double, Double]) = Iterator((edge.dstId, edge.srcAttr * edge.attr))
-    def messageCombiner(a: Double, b: Double): Double = a + b
-    val initialMessage = 0.0
-    val res = Pregel(pagerankGraph, initialMessage, numIter, activeDirection = EdgeDirection.Out)(
-      vertexProgram, sendMessage, messageCombiner)
-    res.vertices.saveAsTextFile(args(1))
+
+  def SingleSourceBFS(sc: SparkContext, inputPath: String, outputPath: String): (Double, Double, Double) = {
+    var startTime = System.currentTimeMillis
+    val graph = loadUndirectedGraph(sc, inputPath, 1, 1).partitionBy(PartitionStrategy.RandomVertexCut)
+    val loadtime = System.currentTimeMillis - startTime
+
+    var computetime = 0.0
+    var dumpTime = 0.0
+    
+    for (i <- 0 until SOURCE_LIST.length) {
+      val SOURCE_VERTEX = SOURCE_LIST(i)
+      val DEST_VERTEX = DEST_LIST(i)
+      
+      startTime = System.currentTimeMillis
+      
+      val initialGraph = graph.mapVertices((id, _) => if (id == SOURCE_VERTEX) 0 else Int.MaxValue)
+
+      val bfs = initialGraph.pregel(Int.MaxValue)(
+        (id, dist, newDist) => math.min(dist, newDist), // Vertex Program
+        triplet => { // Send Message
+          if (triplet.srcAttr != Int.MaxValue && triplet.dstAttr == Int.MaxValue ) {
+            Iterator((triplet.dstId, triplet.srcAttr + 1))
+          } else {
+            Iterator.empty
+          }
+        },
+        (a, b) => a // Merge Message
+        )
+
+       computetime += System.currentTimeMillis - startTime
+       
+       startTime = System.currentTimeMillis
+       val curOutputPath = outputPath + "_" + i
+       val result = bfs.vertices.filter{case (id, dis) => id == DEST_VERTEX}
+       result.saveAsTextFile(curOutputPath)
+       dumpTime += System.currentTimeMillis - startTime
+       
+    }
+    (loadtime, computetime, dumpTime)
+  }
+
+  def main(args: Array[String]) {
+    val sc = new SparkContext(args(0), "bfs")
+    val inputPath = args(1)
+    val outputPath = args(2)
+    val cmd = args(3)
+    
+    val times = 
+    cmd match {
+      case "bfs" => {
+        SingleSourceBFS(sc, inputPath, outputPath)
+      }
+    }
+    
+    System.out.println("Loading Graph in " + times._1  + " ms.")
+    System.out.println("Finished Running engine in " + times._2  + " ms.")
+    System.out.println("Dumping Graph in " + times._3  + " ms.")
   }
 }
