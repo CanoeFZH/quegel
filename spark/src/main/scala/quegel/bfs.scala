@@ -26,6 +26,19 @@ object bfs {
       Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
     }
 
+  def loadDirectedGraph[VD: ClassTag, ED: ClassTag](sc: SparkContext, path: String, defaultEdgeAttr: ED, defaultVetexAttr: VD): Graph[VD, ED] =
+    {
+      val textRDD = sc.textFile(path);
+      val edge = textRDD.flatMap(
+        line => {
+          val numbers = line.split(SEPARATOR);
+          val srcId: VertexId = numbers(0).trim.toLong;
+          val inNeighborsNum = numbers(1).trim.toInt;
+          numbers.slice(3 + inNeighborsNum, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr))
+        })
+      Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
+    }
+  
   def SingleSourceBFS(sc: SparkContext, inputPath: String, outputPath: String): (Double, Double, Double) = {
     var startTime = System.currentTimeMillis
     val graph = loadUndirectedGraph(sc, inputPath, 1, 1).partitionBy(PartitionStrategy.RandomVertexCut)
@@ -65,6 +78,43 @@ object bfs {
     }
     (loadtime, computetime, dumpTime)
   }
+  
+  def BiBFS(sc: SparkContext, inputPath: String, outputPath: String): (Double, Double, Double) = {
+    var startTime = System.currentTimeMillis
+    val graph = loadDirectedGraph(sc, inputPath, (1,1) , 1).partitionBy(PartitionStrategy.RandomVertexCut)
+    val loadtime = System.currentTimeMillis - startTime
+
+    var computetime = 0.0
+    var dumpTime = 0.0
+    
+    for (i <- 0 until SOURCE_LIST.length) {
+      val SOURCE_VERTEX = SOURCE_LIST(i)
+      val DEST_VERTEX = DEST_LIST(i)
+      
+      startTime = System.currentTimeMillis
+      
+      
+      val initialGraph = graph.mapVertices((id, _) => 
+        	id match{
+        	case SOURCE_VERTEX => (0, Int.MaxValue) 
+        	case DEST_VERTEX => (Int.MaxValue, 0 )
+        	case _ => (Int.MaxValue, Int.MaxValue)
+          }
+        )
+        
+      val bfs = initialGraph // biBFS logic here
+
+       computetime += System.currentTimeMillis - startTime
+       
+       startTime = System.currentTimeMillis
+       val curOutputPath = outputPath + "_" + i
+       val result = bfs.vertices.filter{case (id, dis) => id == DEST_VERTEX}
+       result.saveAsTextFile(curOutputPath)
+       dumpTime += System.currentTimeMillis - startTime
+       
+    }
+    (loadtime, computetime, dumpTime)
+  }
 
   def main(args: Array[String]) {
     val sc = new SparkContext(args(0), "bfs")
@@ -76,6 +126,9 @@ object bfs {
     cmd match {
       case "bfs" => {
         SingleSourceBFS(sc, inputPath, outputPath)
+      }
+      case "biBFS" => {
+        BiBFS(sc, inputPath, outputPath)
       }
     }
     
