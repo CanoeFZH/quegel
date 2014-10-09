@@ -373,7 +373,8 @@ bool UndirectedParser(UndirectedGraph& graph, const std::string& filename,
     {
         graphlab::vertex_id_type other_vid;
         ssin >> other_vid;
-        graph.add_edge(vid, other_vid);
+        if (vid != other_vid)
+            graph.add_edge(vid, other_vid);
     }
     return true;
 }
@@ -390,7 +391,8 @@ bool UndirectedBiParser(DirectedGraph& graph, const std::string& filename,
     {
         graphlab::vertex_id_type other_vid;
         ssin >> other_vid;
-        graph.add_edge(vid, other_vid);
+        if (vid != other_vid)
+            graph.add_edge(vid, other_vid);
     }
     
     return true;
