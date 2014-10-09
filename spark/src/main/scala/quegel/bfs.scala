@@ -21,7 +21,7 @@ object bfs {
         line => {
           val numbers = line.split(SEPARATOR);
           val srcId: VertexId = numbers(0).trim.toLong;
-          numbers.slice(2, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr))
+          numbers.slice(2, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr)).filter(p => p.srcId  != p.dstId )
         })
       Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
     }
@@ -34,7 +34,7 @@ object bfs {
           val numbers = line.split(SEPARATOR);
           val srcId: VertexId = numbers(0).trim.toLong;
           val inNeighborsNum = numbers(1).trim.toInt;
-          numbers.slice(3 + inNeighborsNum, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr))
+          numbers.slice(3 + inNeighborsNum, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr)).filter(p => p.srcId  != p.dstId )
         })
       Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
     }
