@@ -13,5 +13,5 @@ hs_err_pid*
 
 
 # spark
-spark/project
-spark/target
+bfs/spark/project
+bfs/spark/target
