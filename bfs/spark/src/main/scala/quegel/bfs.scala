@@ -1,9 +1,9 @@
-package quegel
-import com.esotericsoftware.kryo.Kryo
-import org.apache.spark.SparkContext._
+
+/**
+ * Created by canoe on 5/7/15.
+ */
 import org.apache.spark._
 import org.apache.spark.graphx._
-import org.apache.spark.graphx.lib.Analytics
 import scala.reflect.ClassTag
 import scala.Array.canBuildFrom
 
@@ -14,30 +14,30 @@ object bfs {
 
   val SEPARATOR = "[\t ]"
 
-  def loadUndirectedGraph[VD: ClassTag, ED: ClassTag](sc: SparkContext, path: String, defaultEdgeAttr: ED, defaultVetexAttr: VD): Graph[VD, ED] =
-    {
-      val textRDD = sc.textFile(path);
-      val edge = textRDD.flatMap(
-        line => {
-          val numbers = line.split(SEPARATOR);
-          val srcId: VertexId = numbers(0).trim.toLong;
-          numbers.slice(2, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr)).filter(p => p.srcId != p.dstId)
-        })
-      Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
-    }
+  def loadUndirectedGraph[VD: ClassTag, ED: ClassTag](sc: SparkContext, path: String, defaultEdgeAttr: ED, defaultVetexAttr: VD): Graph[VD, ED] = {
+    val textRDD = sc.textFile(path);
+    val edge = textRDD
+      .map(line => line.split(SEPARATOR))
+      .filter(_.length >= 3)
+      .flatMap(
+      numbers => {
+        val srcId: VertexId = numbers(0).trim.toLong;
+        numbers.slice(2, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr)).filter(p => p.srcId != p.dstId)
+      })
+    Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
+  }
 
-  def loadDirectedGraph[VD: ClassTag, ED: ClassTag](sc: SparkContext, path: String, defaultEdgeAttr: ED, defaultVetexAttr: VD): Graph[VD, ED] =
-    {
-      val textRDD = sc.textFile(path);
-      val edge = textRDD.flatMap(
-        line => {
-          val numbers = line.split(SEPARATOR);
-          val srcId: VertexId = numbers(0).trim.toLong;
-          val inNeighborsNum = numbers(1).trim.toInt;
-          numbers.slice(3 + inNeighborsNum, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr)).filter(p => p.srcId != p.dstId)
-        })
-      Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
-    }
+  def loadDirectedGraph[VD: ClassTag, ED: ClassTag](sc: SparkContext, path: String, defaultEdgeAttr: ED, defaultVetexAttr: VD): Graph[VD, ED] = {
+    val textRDD = sc.textFile(path);
+    val edge = textRDD.flatMap(
+      line => {
+        val numbers = line.split(SEPARATOR);
+        val srcId: VertexId = numbers(0).trim.toLong;
+        val inNeighborsNum = numbers(1).trim.toInt;
+        numbers.slice(3 + inNeighborsNum, numbers.size).map(num => Edge(srcId, num.trim.toLong, defaultEdgeAttr)).filter(p => p.srcId != p.dstId)
+      })
+    Graph.fromEdges[VD, ED](edge, defaultVetexAttr);
+  }
 
   def SingleSourceBFS(sc: SparkContext, inputPath: String, outputPath: String): (Double, Double, Double) = {
     var startTime = System.currentTimeMillis
@@ -51,8 +51,8 @@ object bfs {
       val SOURCE_VERTEX = SOURCE_LIST(i)
       val DEST_VERTEX = DEST_LIST(i)
 
-      System.out.println("Query #" + i + " : Source[ " + SOURCE_VERTEX +" ] Dest[ " + DEST_VERTEX +" ]." )
-      
+      System.out.println("Query #" + i + " : Source[ " + SOURCE_VERTEX + " ] Dest[ " + DEST_VERTEX + " ].")
+
       startTime = System.currentTimeMillis
 
       var bfsGraph = graph.mapVertices((id, _) => if (id == SOURCE_VERTEX) 0 else Int.MaxValue)
@@ -69,7 +69,8 @@ object bfs {
 
         bfsGraph = bfsGraph.pregel(Int.MaxValue, 1)(
           (id, dist, newDist) => math.min(dist, newDist), // Vertex Program
-          triplet => { // Send Message
+          triplet => {
+            // Send Message
             if (triplet.srcAttr != Int.MaxValue && triplet.dstAttr == Int.MaxValue) {
               Iterator((triplet.dstId, superstep))
             } else {
@@ -77,21 +78,21 @@ object bfs {
             }
           },
           (a, b) => a // Merge Message
-          )
+        )
 
         newVisited = bfsGraph.vertices.filter(f => f._2 == superstep).count
-        found = bfsGraph.vertices.filter { case (id, dis) => id == DEST_VERTEX && dis != Int.MaxValue }.count != 0
+        found = bfsGraph.vertices.filter { case (id, dis) => id == DEST_VERTEX && dis != Int.MaxValue}.count != 0
         //bfsGraph.vertices.collect().foreach(f => println("######## " + f._1 + " " + f._2))
       }
 
       computetime += System.currentTimeMillis - startTime
 
-      System.out.println("Query #" + i + " Time: " + (System.currentTimeMillis - startTime )) 
-      
+      System.out.println("Query #" + i + " Time: " + (System.currentTimeMillis - startTime))
+
       startTime = System.currentTimeMillis
       val curOutputPath = outputPath + "_" + i
 
-      val result = bfsGraph.vertices.filter { case (id, dis) => id == DEST_VERTEX }
+      val result = bfsGraph.vertices.filter { case (id, dis) => id == DEST_VERTEX}
       result.saveAsTextFile(curOutputPath)
       dumpTime += System.currentTimeMillis - startTime
 
@@ -136,7 +137,8 @@ object bfs {
         //forward
         bfsGraph = bfsGraph.pregel(Int.MaxValue, 1)(
           (id, dist, newDist) => (math.min(dist._1, newDist), dist._2), // Vertex Program
-          triplet => { // Send Message
+          triplet => {
+            // Send Message
             if (triplet.srcAttr._1 != Int.MaxValue && triplet.dstAttr._1 == Int.MaxValue) {
               Iterator((triplet.dstId, superstep))
             } else {
@@ -144,14 +146,15 @@ object bfs {
             }
           },
           (a, b) => a // Merge Message
-          )
+        )
 
         //bfsGraph.vertices.collect().foreach(f => println("######## " + f._1 + " " + f._2._1 + " " + f._2._2))
 
         //backward
         bfsGraph = bfsGraph.pregel(Int.MaxValue, 1)(
           (id, dist, newDist) => (dist._1, math.min(dist._2, newDist)), // Vertex Program
-          triplet => { // Send Message
+          triplet => {
+            // Send Message
             if (triplet.dstAttr._2 != Int.MaxValue && triplet.srcAttr._2 == Int.MaxValue) {
               Iterator((triplet.srcId, superstep))
             } else {
@@ -159,12 +162,12 @@ object bfs {
             }
           },
           (a, b) => a // Merge Message
-          )
+        )
 
         forwardVisited = bfsGraph.vertices.filter(f => f._2._1 == superstep).count
         backwardVisited = bfsGraph.vertices.filter(f => f._2._2 == superstep).count
 
-        found = bfsGraph.vertices.filter { case (_, dis) => dis._1 != Int.MaxValue && dis._2 != Int.MaxValue }.count != 0
+        found = bfsGraph.vertices.filter { case (_, dis) => dis._1 != Int.MaxValue && dis._2 != Int.MaxValue}.count != 0
         //bfsGraph.vertices.collect().foreach(f => println("######## " + f._1 + " " + f._2._1 + " " + f._2._2))
       }
 
@@ -198,16 +201,14 @@ object bfs {
   }
 
   def main(args: Array[String]) {
-    val conf = new SparkConf().setMaster(args (0)).setAppName("bfs")
-    conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-    conf.set("spark.local.dir", "/home/yanda/sparktemp")
-    val sc = new SparkContext(conf)
-    
-    val inputPath = args(1)
-    val outputPath = args(2)
-    val cmd = args(3)
 
-    val times =
+    val sc = new SparkContext(new SparkConf)
+
+    val inputPath = args(0)
+    val outputPath = args(1)
+    val cmd = args(2)
+
+    val times = {
       cmd match {
         case "bfs" => {
           SingleSourceBFS(sc, inputPath, outputPath)
@@ -220,9 +221,9 @@ object bfs {
           (0.0, 0.0, 0.0)
         }
       }
+    }
 
-    System.out.println("Loading Graph in " + times._1 + " ms.")
-    System.out.println("Finished Running engine in " + times._2 + " ms.")
-    System.out.println("Dumping Graph in " + times._3 + " ms.")
+    println("Loading Graph in " + times._1 + " ms.")
+    println("Finished Running engine in " + times._2 + " ms.")
+    println("Dumping Graph in " + times._3 + " ms.")
   }
-}
